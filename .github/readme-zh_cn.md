@@ -1,6 +1,20 @@
-[English](readme.md) | 中文
+> [!IMPORTANT]  
+> 这里的信息可能已经过时或不完整，仅供您参考。请使用英文版本获取最新信息。
 
-![image](https://github.com/SillyTavern/SillyTavern/assets/18619528/c2be4c3f-aada-4f64-87a3-ae35a68b61a4)
+![][cover]
+
+<div align="center">
+
+[English](readme.md) | 中文 | [日本語](readme-ja_jp.md) | [Русский](readme-ru_ru.md)
+
+[![GitHub Stars](https://img.shields.io/github/stars/SillyTavern/SillyTavern.svg)](https://github.com/SillyTavern/SillyTavern/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/SillyTavern/SillyTavern.svg)](https://github.com/SillyTavern/SillyTavern/network)
+[![GitHub Issues](https://img.shields.io/github/issues/SillyTavern/SillyTavern.svg)](https://github.com/SillyTavern/SillyTavern/issues)
+[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/SillyTavern/SillyTavern.svg)](https://github.com/SillyTavern/SillyTavern/pulls)
+
+</div>
+
+---
 
 移动设备界面友好，多种人工智能服务或模型支持（KoboldAI/CPP, Horde, NovelAI, Ooba, OpenAI, OpenRouter, Claude, Scale），类似 Galgame 的 老 婆 模 式，Horde SD，文本系统语音生成，世界信息（Lorebooks），可定制的界面，自动翻译，和比你所需要的更多的 Prompt。附带扩展服务，支持文本绘画生成与语音生成和基于向量数据库 的聊天信息总结。
 
@@ -47,7 +61,7 @@ SillyTavern 本身并无用处，因为它只是一个用户聊天界面。你�
 
 获取支持，或分享喜爱的角色和 Prompt：
 
-### [加入 Discord 社区](https://discord.gg/RZdyAEUPvj)
+### [加入 Discord 社区](https://discord.gg/sillytavern)
 
 ***
 
@@ -67,22 +81,21 @@ SillyTavern 本身并无用处，因为它只是一个用户聊天界面。你�
 * 支持世界信息（Lorebooks）：创建丰富的传说
 * 支持 Window AI 浏览器扩展（运行 Claude、GPT 4 等模型）：<https://windowai.io/>
 * [Oobabooga's TextGen WebUI](https://github.com/oobabooga/text-generation-webui) API 连接
-* 连接 [AI Horde](https://horde.koboldai.net/)
+* 连接 [AI Horde](https://aihorde.net/)
 * Prompt 生成格式调整
 * Webp 角色卡支持（PNG 仍是内部格式）
 
 ## 扩展
 
-SillyTavern 支持扩展服务，一些额外的人工智能模块可通过 [SillyTavern Extras API](https://github.com/SillyTavern/SillyTavern-extras) 提供。
+SillyTavern 支持扩展服务。
 
-* 作者注释/角色偏见
 * 角色情绪识别
 * 聊天记录自动摘要
 * 在聊天窗口发送图片，并由人工智能解释图片内容
 * 文本图像生成（5 预设，以及 "自由模式"）
 * 聊天信息的文字转语音（通过 ElevenLabs、Silero 或操作系统的语音生成）
 
-扩展服务的完整功能介绍和使用教程，请参阅 [Docs](https://docs.sillytavern.app/extras/extensions/)。
+扩展服务的完整功能介绍和使用教程，请参阅 [Docs](https://docs.sillytavern.app/)。
 
 ## 界面/CSS/性能，由 RossAscends 调整并优化
 
@@ -170,7 +183,7 @@ SillyTavern 会将 API 密钥保存在目录中的 `secrets.json` 文件内。
 
 如果要想通过点击 API 输入框旁边的按钮来查看密钥，请按照以下设置：
 
-1. 打开 `config.conf` 文件，将里面的 `allowKeysExposure` 设置为 `true`。
+1. 打开 `config.yaml` 文件，将里面的 `allowKeysExposure` 设置为 `true`。
 2. 然后重启 SillyTavern 服务。
 
 ## 远程访问
@@ -207,7 +220,7 @@ SillyTavern 会将 API 密钥保存在目录中的 `secrets.json` 文件内。
 
 然后，文件中设置的 IP 就可以访问 SillyTavern 了。
 
-*注意："config.conf" 文件内也有一个 "whitelist" 设置，你可以用同样的方法设置它，但如果 "whitelist.txt" 文件存在，这个设置将被忽略。
+*注意："config.yaml" 文件内也有一个 "whitelist" 设置，你可以用同样的方法设置它，但如果 "whitelist.txt" 文件存在，这个设置将被忽略。
 
 ### 2.获取 SillyTavern 服务的 IP 地址
 
@@ -233,19 +246,19 @@ SillyTavern 会将 API 密钥保存在目录中的 `secrets.json` 文件内。
 
 ### 向所有 IP 开放您的 SillyTavern 服务
 
-我们不建议这样做，但您可以打开 `config.conf` 并将里面的 `whitelist` 设置改为 `false`。
+我们不建议这样做，但您可以打开 `config.yaml` 并将里面的 `whitelistMode` 设置改为 `false`。
 
 你必须删除（或重命名）SillyTavern 文件夹中的 `whitelist.txt` 文件（如果有的话）。
 
 这通常是不安全的做法，所以我们要求在这样做时必须设置用户名和密码。
 
-用户名和密码在`config.conf`文件中设置。
+用户名和密码在`config.yaml`文件中设置。
 
 重启 SillyTavern 服务后，只要知道用户名和密码，任何设备都可以访问。
 
 ### 还是无法访问？
 
-* 为 `config.conf` 文件中的端口创建一条入站/出站防火墙规则。切勿将此误认为是路由器上的端口转发，否则，有人可能会发现你的聊天隐私，那就大错特错了。
+* 为 `config.yaml` 文件中的端口创建一条入站/出站防火墙规则。切勿将此误认为是路由器上的端口转发，否则，有人可能会发现你的聊天隐私，那就大错特错了。
 * 在 "设置" > "网络和 Internet" > "以太网" 中启用 "专用网络" 配置。这对 Windows 11 非常重要，否则即使添加了上述防火墙规则也无法连接。
 
 ### 性能问题？
@@ -276,8 +289,8 @@ SillyTavern 会将 API 密钥保存在目录中的 `secrets.json` 文件内。
 
 ## 屏幕截图
 
-<img width="400" alt="image" src="https://user-images.githubusercontent.com/18619528/228649245-8061c60f-63dc-488e-9325-f151b7a3ec2d.png">
-<img width="400" alt="image" src="https://user-images.githubusercontent.com/18619528/228649856-fbdeef05-d727-4d5a-be80-266cbbc6b811.png">
+<img width="500" alt="image" src="https://github.com/user-attachments/assets/9b5f32f0-c3b3-4102-b3f5-0e9213c0f50f">
+<img width="500" alt="image" src="https://github.com/user-attachments/assets/913fdbaa-7d33-42f1-ae2c-89dca41c53d1">
 
 ## 许可证和贡献
 
@@ -304,3 +317,6 @@ SillyTavern 会将 API 密钥保存在目录中的 `secrets.json` 文件内。
 * Default content (characters and lore books) provided by @OtisAlejandro, @RossAscends and @kallmeflocc
 * Korean translation by @doloroushyeonse
 * 中文翻译由 [@XXpE3](https://github.com/XXpE3) 完成，中文 ISSUES 可以联系 @XXpE3
+
+<!-- LINK GROUP -->
+[cover]: https://github.com/user-attachments/assets/01a6ae9a-16aa-45f2-8bff-32b5dc587e44

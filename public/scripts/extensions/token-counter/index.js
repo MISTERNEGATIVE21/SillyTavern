@@ -1,15 +1,18 @@
-import { callPopup, main_api } from "../../../script.js";
-import { getContext } from "../../extensions.js";
-import { registerSlashCommand } from "../../slash-commands.js";
-import { getFriendlyTokenizerName, getTextTokens, getTokenCount, tokenizers } from "../../tokenizers.js";
-import { resetScrollHeight } from "../../utils.js";
+import { main_api } from '../../../script.js';
+import { getContext } from '../../extensions.js';
+import { SlashCommand } from '../../slash-commands/SlashCommand.js';
+import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
+import { getFriendlyTokenizerName, getTextTokens, getTokenCountAsync, tokenizers } from '../../tokenizers.js';
+import { resetScrollHeight, debounce } from '../../utils.js';
+import { debounce_timeout } from '../../constants.js';
+import { POPUP_TYPE, callGenericPopup } from '../../popup.js';
 
 function rgb2hex(rgb) {
     rgb = rgb.match(/^rgba?[\s+]?\([\s+]?(\d+)[\s+]?,[\s+]?(\d+)[\s+]?,[\s+]?(\d+)[\s+]?/i);
-    return (rgb && rgb.length === 4) ? "#" +
-        ("0" + parseInt(rgb[1], 10).toString(16)).slice(-2) +
-        ("0" + parseInt(rgb[2], 10).toString(16)).slice(-2) +
-        ("0" + parseInt(rgb[3], 10).toString(16)).slice(-2) : '';
+    return (rgb && rgb.length === 4) ? '#' +
+        ('0' + parseInt(rgb[1], 10).toString(16)).slice(-2) +
+        ('0' + parseInt(rgb[2], 10).toString(16)).slice(-2) +
+        ('0' + parseInt(rgb[3], 10).toString(16)).slice(-2) : '';
 }
 
 $('button').click(function () {
@@ -33,12 +36,12 @@ async function doTokenCounter() {
             <div id="tokenized_chunks_display" class="wide100p">—</div>
             <hr>
             <div>Token IDs:</div>
-            <textarea id="token_counter_ids" class="wide100p textarea_compact" disabled rows="1">—</textarea>
+            <textarea id="token_counter_ids" class="wide100p textarea_compact" readonly rows="1">—</textarea>
         </div>
     </div>`;
 
     const dialog = $(html);
-    dialog.find('#token_counter_textarea').on('input', () => {
+    const countDebounced = debounce(async () => {
         const text = String($('#token_counter_textarea').val());
         const ids = main_api == 'openai' ? getTextTokens(tokenizers.OPENAI, text) : getTextTokens(tokenizerId, text);
 
@@ -50,19 +53,20 @@ async function doTokenCounter() {
                 drawChunks(Object.getOwnPropertyDescriptor(ids, 'chunks').value, ids);
             }
         } else {
-            const context = getContext();
-            const count = context.getTokenCount(text);
+            const count = await getTokenCountAsync(text);
             $('#token_counter_ids').text('—');
             $('#token_counter_result').text(count);
             $('#tokenized_chunks_display').text('—');
         }
 
-        resetScrollHeight($('#token_counter_textarea'));
-        resetScrollHeight($('#token_counter_ids'));
-    });
+        if (!CSS.supports('field-sizing', 'content')) {
+            await resetScrollHeight($('#token_counter_textarea'));
+            await resetScrollHeight($('#token_counter_ids'));
+        }
+    }, debounce_timeout.relaxed);
+    dialog.find('#token_counter_textarea').on('input', () => countDebounced());
 
-    $('#dialogue_popup').addClass('wide_dialogue_popup');
-    callPopup(dialog, 'text', '', { wide: true, large: true });
+    callGenericPopup(dialog, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
 }
 
 /**
@@ -71,16 +75,6 @@ async function doTokenCounter() {
  * @param {number[]} ids
  */
 function drawChunks(chunks, ids) {
-    const main_text_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBodyColor').trim()))
-    const italics_text_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeEmColor').trim()))
-    const quote_text_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeQuoteColor').trim()))
-    const blur_tint_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBlurTintColor').trim()))
-    const chat_tint_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeChatTintColor').trim()))
-    const user_mes_blur_tint_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeUserMesBlurTintColor').trim()))
-    const bot_mes_blur_tint_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBotMesBlurTintColor').trim()))
-    const shadow_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeShadowColor').trim()))
-    const border_color = rgb2hex((getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBorderColor').trim()))
-
     const pastelRainbow = [
         //main_text_color,
         //italics_text_color,
@@ -110,13 +104,15 @@ function drawChunks(chunks, ids) {
         }
 
         const color = pastelRainbow[i % pastelRainbow.length];
-        const chunkHtml = $(`<code style="background-color: ${color};">${chunk}</code>`);
+        const chunkHtml = $('<code></code>');
+        chunkHtml.css('background-color', color);
+        chunkHtml.text(chunk);
         chunkHtml.attr('title', ids[i]);
         $('#tokenized_chunks_display').append(chunkHtml);
     }
 }
 
-function doCount() {
+async function doCount() {
     // get all of the messages in the chat
     const context = getContext();
     const messages = context.chat.filter(x => x.mes && !x.is_system).map(x => x.mes);
@@ -127,7 +123,9 @@ function doCount() {
     console.debug('All messages:', allMessages);
 
     //toastr success with the token count of the chat
-    toastr.success(`Token count: ${getTokenCount(allMessages)}`);
+    const count = await getTokenCountAsync(allMessages);
+    toastr.success(`Token count: ${count}`);
+    return count;
 }
 
 jQuery(() => {
@@ -136,7 +134,13 @@ jQuery(() => {
             <div class="fa-solid fa-1 extensionsMenuExtensionButton" /></div>
             Token Counter
         </div>`;
-    $('#extensionsMenu').prepend(buttonHtml);
+    $('#token_counter_wand_container').append(buttonHtml);
     $('#token_counter').on('click', doTokenCounter);
-    registerSlashCommand('count', doCount, [], '– counts the number of tokens in the current chat', true, false);
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'count',
+        callback: async () => String(await doCount()),
+        returns: 'number of tokens',
+        helpString: 'Counts the number of tokens in the current chat.',
+    }));
+
 });

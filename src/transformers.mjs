@@ -1,7 +1,7 @@
 import { pipeline, env, RawImage, Pipeline } from 'sillytavern-transformers';
 import { getConfigValue } from './util.js';
 import path from 'path';
-import _ from 'lodash';
+import fs from 'fs';
 
 configureTransformers();
 
@@ -17,23 +17,39 @@ const tasks = {
         defaultModel: 'Cohee/distilbert-base-uncased-go-emotions-onnx',
         pipeline: null,
         configField: 'extras.classificationModel',
+        quantized: true,
     },
     'image-to-text': {
         defaultModel: 'Xenova/vit-gpt2-image-captioning',
         pipeline: null,
         configField: 'extras.captioningModel',
+        quantized: true,
     },
     'feature-extraction': {
         defaultModel: 'Xenova/all-mpnet-base-v2',
         pipeline: null,
         configField: 'extras.embeddingModel',
+        quantized: true,
     },
     'text-generation': {
         defaultModel: 'Cohee/fooocus_expansion-onnx',
         pipeline: null,
         configField: 'extras.promptExpansionModel',
+        quantized: false,
     },
-}
+    'automatic-speech-recognition': {
+        defaultModel: 'Xenova/whisper-small',
+        pipeline: null,
+        configField: 'extras.speechToTextModel',
+        quantized: true,
+    },
+    'text-to-speech': {
+        defaultModel: 'Xenova/speecht5_tts',
+        pipeline: null,
+        configField: 'extras.textToSpeechModel',
+        quantized: false,
+    },
+};
 
 /**
  * Gets a RawImage object from a base64-encoded image.
@@ -65,31 +81,69 @@ function getModelForTask(task) {
         const model = getConfigValue(tasks[task].configField, null);
         return model || defaultModel;
     } catch (error) {
-        console.warn('Failed to read config.conf, using default classification model.');
+        console.warn('Failed to read config.yaml, using default classification model.');
         return defaultModel;
+    }
+}
+
+async function migrateCacheToDataDir() {
+    const oldCacheDir = path.join(process.cwd(), 'cache');
+    const newCacheDir = path.join(global.DATA_ROOT, '_cache');
+
+    if (!fs.existsSync(newCacheDir)) {
+        fs.mkdirSync(newCacheDir, { recursive: true });
+    }
+
+    if (fs.existsSync(oldCacheDir) && fs.statSync(oldCacheDir).isDirectory()) {
+        const files = fs.readdirSync(oldCacheDir);
+
+        if (files.length === 0) {
+            return;
+        }
+
+        console.log('Migrating model cache files to data directory. Please wait...');
+
+        for (const file of files) {
+            try {
+                const oldPath = path.join(oldCacheDir, file);
+                const newPath = path.join(newCacheDir, file);
+                fs.cpSync(oldPath, newPath, { recursive: true, force: true });
+                fs.rmSync(oldPath, { recursive: true, force: true });
+            } catch (error) {
+                console.warn('Failed to migrate cache file. The model will be re-downloaded.', error);
+            }
+        }
     }
 }
 
 /**
  * Gets the transformers.js pipeline for a given task.
- * @param {string} task The task to get the pipeline for
+ * @param {import('sillytavern-transformers').PipelineType} task The task to get the pipeline for
+ * @param {string} forceModel The model to use for the pipeline, if any
  * @returns {Promise<Pipeline>} Pipeline for the task
  */
-async function getPipeline(task) {
+async function getPipeline(task, forceModel = '') {
+    await migrateCacheToDataDir();
+
     if (tasks[task].pipeline) {
-        return tasks[task].pipeline;
+        if (forceModel === '' || tasks[task].currentModel === forceModel) {
+            return tasks[task].pipeline;
+        }
+        console.log('Disposing transformers.js pipeline for for task', task, 'with model', tasks[task].currentModel);
+        await tasks[task].pipeline.dispose();
     }
 
-    const cache_dir = path.join(process.cwd(), 'cache');
-    const model = getModelForTask(task);
+    const cacheDir = path.join(global.DATA_ROOT, '_cache');
+    const model = forceModel || getModelForTask(task);
     const localOnly = getConfigValue('extras.disableAutoDownload', false);
     console.log('Initializing transformers.js pipeline for task', task, 'with model', model);
-    const instance = await pipeline(task, model, { cache_dir, quantized: true, local_files_only: localOnly });
+    const instance = await pipeline(task, model, { cache_dir: cacheDir, quantized: tasks[task].quantized ?? true, local_files_only: localOnly });
     tasks[task].pipeline = instance;
+    tasks[task].currentModel = model;
     return instance;
 }
 
 export default {
     getPipeline,
     getRawImage,
-}
+};

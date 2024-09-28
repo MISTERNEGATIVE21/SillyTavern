@@ -1,7 +1,6 @@
 
 #rm_print_characters_block.group_overlay_mode_select .character_select {
     transition: background-color 0.4s ease;
-    margin-bottom: 1px;
     background-color: rgba(170, 170, 170, 0.15);
 }
 
@@ -90,7 +89,7 @@
     position: absolute;
     width: 100%;
     height: 100vh;
-    height: 100svh;
+    height: 100dvh;
     z-index: 9998;
     top: 0;
 }
@@ -100,6 +99,6 @@
 }
 
 #bulk_tag_shadow_popup #bulk_tag_popup #dialogue_popup_controls .menu_button {
-    width: 100px;
+    width: unset;
     padding: 0.25em;
 }
