@@ -196,9 +196,10 @@ function filterByTagState(entities, { globalDisplayFilters = false, subForEntity
                 return false;
             }
 
-            // Hide folders that have 0 visible sub entities after the first filtering round
+            // Hide folders that have 0 visible sub entities after the first filtering round, unless we are inside a search via search term.
+            // Then we want to display folders that mach too, even if the chars inside don't match the search.
             if (entity.type === 'tag') {
-                return entity.entities.length > 0;
+                return entity.entities.length > 0 || entitiesFilter.getFilterData(FILTER_TYPES.SEARCH);
             }
 
             return true;
@@ -409,7 +410,7 @@ function getInlineListSelector() {
         return `.group_select[grid="${selected_group}"] .tags`;
     }
 
-    if (this_chid && menu_type === 'character_edit') {
+    if (this_chid !== undefined && menu_type === 'character_edit') {
         return `.character_select[chid="${this_chid}"] .tags`;
     }
 
@@ -484,8 +485,8 @@ export function getTagKeyForEntityElement(element) {
     }
     // Start with the given element and traverse up the DOM tree
     while (element.length && element.parent().length) {
-        const grid = element.attr('grid');
-        const chid = element.attr('chid');
+        const grid = element.attr('data-grid');
+        const chid = element.attr('data-chid');
         if (grid || chid) {
             const id = grid || chid;
             return getTagKeyForEntity(id);
@@ -1250,7 +1251,7 @@ function onCharacterCreateClick() {
 }
 
 function onGroupCreateClick() {
-    // Nothing to do here at the moment. Tags in group interface get automatically redrawn.
+    $('#groupTagList').empty();
 }
 
 export function applyTagsOnCharacterSelect(chid = null) {
@@ -1258,11 +1259,11 @@ export function applyTagsOnCharacterSelect(chid = null) {
     if (menu_type === 'create') {
         const currentTagIds = $('#tagList').find('.tag').map((_, el) => $(el).attr('id')).get();
         const currentTags = tags.filter(x => currentTagIds.includes(x.id));
-        printTagList($('#tagList'), { forEntityOrKey: null, tags: currentTags, tagOptions: { removable: true } });
+        printTagList($('#tagList'), { forEntityOrKey: undefined, tags: currentTags, tagOptions: { removable: true } });
         return;
     }
 
-    chid = chid ?? Number(this_chid);
+    chid = chid ?? (this_chid !== undefined ? Number(this_chid) : undefined);
     printTagList($('#tagList'), { forEntityOrKey: chid, tagOptions: { removable: true } });
 }
 
@@ -1271,11 +1272,11 @@ export function applyTagsOnGroupSelect(groupId = null) {
     if (menu_type === 'group_create') {
         const currentTagIds = $('#groupTagList').find('.tag').map((_, el) => $(el).attr('id')).get();
         const currentTags = tags.filter(x => currentTagIds.includes(x.id));
-        printTagList($('#groupTagList'), { forEntityOrKey: null, tags: currentTags, tagOptions: { removable: true } });
+        printTagList($('#groupTagList'), { forEntityOrKey: undefined, tags: currentTags, tagOptions: { removable: true } });
         return;
     }
 
-    groupId = groupId ?? Number(selected_group);
+    groupId = groupId ?? (selected_group ? Number(selected_group) : undefined);
     printTagList($('#groupTagList'), { forEntityOrKey: groupId, tagOptions: { removable: true } });
 }
 

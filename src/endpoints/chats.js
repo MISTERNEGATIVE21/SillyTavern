@@ -8,8 +8,19 @@ import sanitize from 'sanitize-filename';
 import { sync as writeFileAtomicSync } from 'write-file-atomic';
 import _ from 'lodash';
 
-import { jsonParser, urlencodedParser } from '../express-common.js';
-import { getConfigValue, humanizedISO8601DateTime, tryParse, generateTimestamp, removeOldBackups } from '../util.js';
+import validateAvatarUrlMiddleware from '../middleware/validateFileName.js';
+import {
+    getConfigValue,
+    humanizedISO8601DateTime,
+    tryParse,
+    generateTimestamp,
+    removeOldBackups,
+    formatBytes,
+} from '../util.js';
+
+const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
+const maxTotalChatBackups = Number(getConfigValue('backups.chat.maxTotalBackups', -1, 'number'));
+const throttleInterval = Number(getConfigValue('backups.chat.throttleInterval', 10_000, 'number'));
 
 /**
  * Saves a chat to the backups directory.
@@ -19,9 +30,8 @@ import { getConfigValue, humanizedISO8601DateTime, tryParse, generateTimestamp, 
  */
 function backupChat(directory, name, chat) {
     try {
-        const isBackupDisabled = getConfigValue('disableChatBackup', false);
 
-        if (isBackupDisabled) {
+        if (!isBackupEnabled) {
             return;
         }
 
@@ -32,11 +42,20 @@ function backupChat(directory, name, chat) {
         writeFileAtomicSync(backupFile, chat, 'utf-8');
 
         removeOldBackups(directory, `chat_${name}_`);
+
+        if (isNaN(maxTotalChatBackups) || maxTotalChatBackups < 0) {
+            return;
+        }
+
+        removeOldBackups(directory, 'chat_', maxTotalChatBackups);
     } catch (err) {
-        console.log(`Could not backup chat for ${name}`, err);
+        console.error(`Could not backup chat for ${name}`, err);
     }
 }
 
+/**
+ * @type {Map<string, import('lodash').DebouncedFunc<function(string, string, string): void>>}
+ */
 const backupFunctions = new Map();
 
 /**
@@ -45,24 +64,10 @@ const backupFunctions = new Map();
  * @returns {function(string, string, string): void} Backup function
  */
 function getBackupFunction(handle) {
-    const throttleInterval = getConfigValue('chatBackupThrottleInterval', 10_000);
     if (!backupFunctions.has(handle)) {
         backupFunctions.set(handle, _.throttle(backupChat, throttleInterval, { leading: true, trailing: true }));
     }
-    return backupFunctions.get(handle);
-}
-
-/**
- * Formats a byte size into a human-readable string with units
- * @param {number} bytes - The size in bytes to format
- * @returns {string} The formatted string (e.g., "1.5 MB")
- */
-function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return backupFunctions.get(handle) || (() => {});
 }
 
 /**
@@ -259,9 +264,37 @@ function flattenChubChat(userName, characterName, lines) {
     return (lines ?? []).map(convert).join('\n');
 }
 
+/**
+ * Imports a chat from RisuAI format.
+ * @param {string} userName User name
+ * @param {string} characterName Character name
+ * @param {object} jsonData Imported chat data
+ * @returns {string} Chat data
+ */
+function importRisuChat(userName, characterName, jsonData) {
+    /** @type {object[]} */
+    const chat = [{
+        user_name: userName,
+        character_name: characterName,
+        create_date: humanizedISO8601DateTime(),
+    }];
+
+    for (const message of jsonData.data.message) {
+        const isUser = message.role === 'user';
+        chat.push({
+            name: message.name ?? (isUser ? userName : characterName),
+            is_user: isUser,
+            send_date: Number(message.time ?? Date.now()),
+            mes: message.data ?? '',
+        });
+    }
+
+    return chat.map(obj => JSON.stringify(obj)).join('\n');
+}
+
 export const router = express.Router();
 
-router.post('/save', jsonParser, function (request, response) {
+router.post('/save', validateAvatarUrlMiddleware, function (request, response) {
     try {
         const directoryName = String(request.body.avatar_url).replace('.png', '');
         const chatData = request.body.chat;
@@ -272,12 +305,12 @@ router.post('/save', jsonParser, function (request, response) {
         getBackupFunction(request.user.profile.handle)(request.user.directories.backups, directoryName, jsonlData);
         return response.send({ result: 'ok' });
     } catch (error) {
-        response.send(error);
-        return console.log(error);
+        console.error(error);
+        return response.send(error);
     }
 });
 
-router.post('/get', jsonParser, function (request, response) {
+router.post('/get', validateAvatarUrlMiddleware, function (request, response) {
     try {
         const dirName = String(request.body.avatar_url).replace('.png', '');
         const directoryPath = path.join(request.user.directories.chats, dirName);
@@ -313,8 +346,7 @@ router.post('/get', jsonParser, function (request, response) {
     }
 });
 
-
-router.post('/rename', jsonParser, async function (request, response) {
+router.post('/rename', validateAvatarUrlMiddleware, async function (request, response) {
     if (!request.body || !request.body.original_file || !request.body.renamed_file) {
         return response.sendStatus(400);
     }
@@ -325,37 +357,37 @@ router.post('/rename', jsonParser, async function (request, response) {
     const pathToOriginalFile = path.join(pathToFolder, sanitize(request.body.original_file));
     const pathToRenamedFile = path.join(pathToFolder, sanitize(request.body.renamed_file));
     const sanitizedFileName = path.parse(pathToRenamedFile).name;
-    console.log('Old chat name', pathToOriginalFile);
-    console.log('New chat name', pathToRenamedFile);
+    console.info('Old chat name', pathToOriginalFile);
+    console.info('New chat name', pathToRenamedFile);
 
     if (!fs.existsSync(pathToOriginalFile) || fs.existsSync(pathToRenamedFile)) {
-        console.log('Either Source or Destination files are not available');
+        console.error('Either Source or Destination files are not available');
         return response.status(400).send({ error: true });
     }
 
     fs.copyFileSync(pathToOriginalFile, pathToRenamedFile);
     fs.rmSync(pathToOriginalFile);
-    console.log('Successfully renamed.');
+    console.info('Successfully renamed.');
     return response.send({ ok: true, sanitizedFileName });
 });
 
-router.post('/delete', jsonParser, function (request, response) {
+router.post('/delete', validateAvatarUrlMiddleware, function (request, response) {
     const dirName = String(request.body.avatar_url).replace('.png', '');
     const fileName = String(request.body.chatfile);
     const filePath = path.join(request.user.directories.chats, dirName, sanitize(fileName));
     const chatFileExists = fs.existsSync(filePath);
 
     if (!chatFileExists) {
-        console.log(`Chat file not found '${filePath}'`);
+        console.error(`Chat file not found '${filePath}'`);
         return response.sendStatus(400);
     }
 
     fs.rmSync(filePath);
-    console.log('Deleted chat file: ' + filePath);
+    console.info(`Deleted chat file: ${filePath}`);
     return response.send('ok');
 });
 
-router.post('/export', jsonParser, async function (request, response) {
+router.post('/export', validateAvatarUrlMiddleware, async function (request, response) {
     if (!request.body.file || (!request.body.avatar_url && request.body.is_group === false)) {
         return response.sendStatus(400);
     }
@@ -368,7 +400,7 @@ router.post('/export', jsonParser, async function (request, response) {
         const errorMessage = {
             message: `Could not find JSONL file to export. Source chat file: ${filename}.`,
         };
-        console.log(errorMessage.message);
+        console.error(errorMessage.message);
         return response.status(404).json(errorMessage);
     }
     try {
@@ -381,14 +413,14 @@ router.post('/export', jsonParser, async function (request, response) {
                     result: rawFile,
                 };
 
-                console.log(`Chat exported as ${exportfilename}`);
+                console.info(`Chat exported as ${exportfilename}`);
                 return response.status(200).json(successMessage);
             } catch (err) {
                 console.error(err);
                 const errorMessage = {
                     message: `Could not read JSONL file to export. Source chat file: ${filename}.`,
                 };
-                console.log(errorMessage.message);
+                console.error(errorMessage.message);
                 return response.status(500).json(errorMessage);
             }
         }
@@ -415,17 +447,16 @@ router.post('/export', jsonParser, async function (request, response) {
                 message: `Chat saved to ${exportfilename}`,
                 result: buffer,
             };
-            console.log(`Chat exported as ${exportfilename}`);
+            console.info(`Chat exported as ${exportfilename}`);
             return response.status(200).json(successMessage);
         });
     } catch (err) {
-        console.log('chat export failed.');
-        console.log(err);
+        console.error('chat export failed.', err);
         return response.sendStatus(400);
     }
 });
 
-router.post('/group/import', urlencodedParser, function (request, response) {
+router.post('/group/import', function (request, response) {
     try {
         const filedata = request.file;
 
@@ -445,7 +476,7 @@ router.post('/group/import', urlencodedParser, function (request, response) {
     }
 });
 
-router.post('/import', urlencodedParser, function (request, response) {
+router.post('/import', validateAvatarUrlMiddleware, function (request, response) {
     if (!request.body) return response.sendStatus(400);
 
     const format = request.body.file_type;
@@ -476,8 +507,10 @@ router.post('/import', urlencodedParser, function (request, response) {
                 importFunc = importOobaChat;
             } else if (Array.isArray(jsonData.messages)) { // Agnai's format
                 importFunc = importAgnaiChat;
+            } else if (jsonData.type === 'risuChat') { // RisuAI format
+                importFunc = importRisuChat;
             } else { // Unknown format
-                console.log('Incorrect chat format .json');
+                console.error('Incorrect chat format .json');
                 return response.send({ error: true });
             }
 
@@ -505,7 +538,7 @@ router.post('/import', urlencodedParser, function (request, response) {
             const jsonData = JSON.parse(header);
 
             if (!(jsonData.user_name !== undefined || jsonData.name !== undefined)) {
-                console.log('Incorrect chat format .jsonl');
+                console.error('Incorrect chat format .jsonl');
                 return response.send({ error: true });
             }
 
@@ -536,7 +569,7 @@ router.post('/import', urlencodedParser, function (request, response) {
     }
 });
 
-router.post('/group/get', jsonParser, (request, response) => {
+router.post('/group/get', (request, response) => {
     if (!request.body || !request.body.id) {
         return response.sendStatus(400);
     }
@@ -556,7 +589,7 @@ router.post('/group/get', jsonParser, (request, response) => {
     }
 });
 
-router.post('/group/delete', jsonParser, (request, response) => {
+router.post('/group/delete', (request, response) => {
     if (!request.body || !request.body.id) {
         return response.sendStatus(400);
     }
@@ -572,7 +605,7 @@ router.post('/group/delete', jsonParser, (request, response) => {
     return response.send({ error: true });
 });
 
-router.post('/group/save', jsonParser, (request, response) => {
+router.post('/group/save', (request, response) => {
     if (!request.body || !request.body.id) {
         return response.sendStatus(400);
     }
@@ -591,7 +624,7 @@ router.post('/group/save', jsonParser, (request, response) => {
     return response.send({ ok: true });
 });
 
-router.post('/search', jsonParser, function (request, response) {
+router.post('/search', validateAvatarUrlMiddleware, function (request, response) {
     try {
         const { query, avatar_url, group_id } = request.body;
         let chatFiles = [];
@@ -611,7 +644,7 @@ router.post('/search', jsonParser, function (request, response) {
                         break;
                     }
                 } catch (error) {
-                    console.error(groupFile, 'group file is corrupted:', error);
+                    console.warn(groupFile, 'group file is corrupted:', error);
                 }
             }
 
@@ -664,12 +697,12 @@ router.post('/search', jsonParser, function (request, response) {
                 .map(line => { try { return JSON.parse(line); } catch (_) { return null; } })
                 .filter(x => x && typeof x.mes === 'string');
 
-            if (messages.length === 0) {
+            if (query && messages.length === 0) {
                 continue;
             }
 
             const lastMessage = messages[messages.length - 1];
-            const lastMesDate = lastMessage?.send_date || new Date().toISOString();
+            const lastMesDate = lastMessage?.send_date || Math.round(fs.statSync(chatFile.path).mtimeMs);
 
             // If no search query, just return metadata
             if (!query) {
@@ -702,7 +735,7 @@ router.post('/search', jsonParser, function (request, response) {
         }
 
         // Sort by last message date descending
-        results.sort((a, b) => new Date(b.last_mes) - new Date(a.last_mes));
+        results.sort((a, b) => new Date(b.last_mes).getTime() - new Date(a.last_mes).getTime());
         return response.send(results);
 
     } catch (error) {
